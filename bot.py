@@ -127,12 +127,33 @@ async def start_http_server():
 
 
 
+async def keep_alive():
+    """Підтримує сервіс активним, роблячи HTTP запити кожні 10 хвилин"""
+    import aiohttp
+    url = f"https://cryptocourier-bot.onrender.com/health"
+    
+    while True:
+        try:
+            await asyncio.sleep(600)  # 10 хвилин
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        logger.info("✅ Keep-alive ping: OK")
+                    else:
+                        logger.warning(f"⚠️ Keep-alive ping: {response.status}")
+        except Exception as e:
+            logger.error(f"❌ Keep-alive error: {e}")
+
+
 async def main():
     """Основний цикл бота"""
     logger.info("Бот запущено")
         
     # Запускаємо HTTP сервер
     await start_http_server()
+        
+    # Запускаємо keep-alive у фоні
+    asyncio.create_task(keep_alive())
     
     while True:
         try:
