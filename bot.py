@@ -7,6 +7,8 @@ import feedparser
 from telegram import Bot
 from telegram.error import TelegramError
 import asyncio
+from aiohttp import web
+import threading
 
 # Налаштування логування
 logging.basicConfig(
@@ -107,10 +109,30 @@ async def check_and_post_news():
     # Зберігаємо тільки останні 1000 ID
     cache['posted_ids'] = list(posted_ids)[-1000:]
     save_cache(cache)
+# HTTP Health Check для Render
+async def health_check(request):
+    return web.Response(text="Bot is running")
+
+async def start_http_server():
+    """Запускає HTTP сервер для health check"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get('PORT', 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"HTTP сервер запущено на порту {port}")
+
+
 
 async def main():
     """Основний цикл бота"""
     logger.info("Бот запущено")
+        
+    # Запускаємо HTTP сервер
+    await start_http_server()
     
     while True:
         try:
