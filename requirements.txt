@@ -1,0 +1,7 @@
+python-telegram-bot
+requests
+feedparser
+deep-translator
+textblob
+python-dotenv
+APScheduler
