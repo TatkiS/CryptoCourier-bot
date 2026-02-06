@@ -6,3 +6,4 @@ textblob
 python-dotenv
 APScheduler
 pytz
+aiohttp
