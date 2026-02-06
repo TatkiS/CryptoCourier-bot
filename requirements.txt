@@ -5,3 +5,4 @@ deep-translator
 textblob
 python-dotenv
 APScheduler
+pytz
