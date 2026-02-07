@@ -9,8 +9,7 @@ from telegram.error import TelegramError
 import asyncio
 from aiohttp import web
 import threading
-from deep_translator import DeeplTranslator, MyMemoryTranslator
-
+from deep_translator import GoogleTranslator
 # Налаштування логування
 logging.basicConfig(
     level=logging.INFO,
@@ -50,7 +49,8 @@ def save_cache(cache):
     except Exception as e:
         logger.error(f"Помилка збереження кешу: {e}")
 
-def translate_to_ukrainian(text):
+53
+(text):
     """Перекладає текст на українську з високою якістю"""
     if not text or len(text.strip()) == 0:
         return text
@@ -70,30 +70,21 @@ def translate_to_ukrainian(text):
         
     except Exception as e:
         logger.error(f"Помилка перекладу: {e}")
+53
+12
+        (text):
+    """Перекладає текст на українську з високою якістю"""
+    if not text or len(text.strip()) == 0:
         return text
-
-
-def format_news(entry):
-    """Форматує новину для публікації"""
-    title = entry.get('title', 'Без заголовка')
-        
-    # Перекладаємо заголовок на українську
-    title = translate_to_ukrainian(title)
-    link = entry.get('link', '')
-    published = entry.get('published', '')
     
-    # Форматування дати
     try:
-        pub_date = datetime.strptime(published, '%a, %d %b %Y %H:%M:%S %z')
-        kyiv_tz = pytz.timezone('Europe/Kiev')
-        pub_date_kyiv = pub_date.astimezone(kyiv_tz)
-        date_str = pub_date_kyiv.strftime('%d.%m.%Y %H:%M')
-    except:
-        date_str = published
-    
-    message = f"🔔 <b>{title}</b>\n\n"
-    message += f"📅 {date_str}\n"
-    message += f"🔗 <a href='{link}'>Читати повністю</a>\n\n"
+        # Використовуємо GoogleTranslator (безкоштовний і надійний)
+        translator = GoogleTranslator(source='auto', target='uk')
+        result = translator.translate(text)
+        return result if result else text
+    except Exception as e:
+        logger.error(f"Помилка перекладу: {e}")
+        return text    message += f"🔗 <a href='{link}'>Читати повністю</a>\n\n"
     message += "#криптоновини #CryptoCourier"
     
     return message
