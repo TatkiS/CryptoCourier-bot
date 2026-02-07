@@ -9,6 +9,7 @@ from telegram.error import TelegramError
 import asyncio
 from aiohttp import web
 import threading
+from deep_translator import DeeplTranslator, MyMemoryTranslator
 
 # Налаштування логування
 logging.basicConfig(
@@ -49,9 +50,37 @@ def save_cache(cache):
     except Exception as e:
         logger.error(f"Помилка збереження кешу: {e}")
 
+def translate_to_ukrainian(text):
+    """Перекладає текст на українську з високою якістю"""
+    if not text or len(text.strip()) == 0:
+        return text
+    
+    try:
+        # Пробуємо DeepL (free tier)
+        try:
+            translator = DeeplTranslator(source='auto', target='uk', use_free_api=True)
+            result = translator.translate(text)
+            if result:
+                return result
+        except:
+            pass
+        
+        # Fallback: MyMemory (безкоштовний, добра якість)
+        translator = MyMemoryTranslator(source='en', target='uk')
+        result = translator.translate(text)
+        return result if result else text
+        
+    except Exception as e:
+        logger.error(f"Помилка перекладу: {e}")
+        return text
+
+
 def format_news(entry):
     """Форматує новину для публікації"""
     title = entry.get('title', 'Без заголовка')
+        
+    # Перекладаємо заголовок на українську
+    title = translate_to_ukrainian(title)
     link = entry.get('link', '')
     published = entry.get('published', '')
     
