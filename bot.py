@@ -58,16 +58,14 @@ def translate_to_ukrainian(text):
     try:
         # Пробуємо DeepL (free tier)
         try:
-            translator = DeeplTranslator(source='auto', target='uk', use_free_api=True)
-            result = translator.translate(text)
+            translator = DeeplTranslator(source='auto', target='ukrainian', use_free_api=True)            result = translator.translate(text)
             if result:
                 return result
         except:
             pass
         
         # Fallback: MyMemory (безкоштовний, добра якість)
-        translator = MyMemoryTranslator(source='en', target='uk')
-        result = translator.translate(text)
+        translator = MyMemoryTranslator(source='en', target='uk-UA')        result = translator.translate(text)
         return result if result else text
         
     except Exception as e:
