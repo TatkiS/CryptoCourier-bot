@@ -27,7 +27,7 @@ RSS_FEEDS = [
     'https://decrypt.co/feed'
 ]
 CACHE_FILE = 'posted_cache.json'
-CHECK_INTERVAL = 10800  # 3 години
+CHECK_INTERVAL = 60  # 3 години
 
 # Ініціалізація бота
 bot = Bot(token=BOT_TOKEN)
