@@ -9,7 +9,7 @@ from telegram.error import TelegramError
 import asyncio
 from aiohttp import web
 import threading
-from deep_translator import LibreTranslateTranslator
+from deep_translator import MyMemoryTranslator
 
 # Налаштування логування
 logging.basicConfig(
@@ -56,8 +56,8 @@ def translate_to_ukrainian(text):
         return text
     
     try:
-        # Використовуємо LibreTranslate (безкоштовний і надійний)
-        translator = LibreTranslateTranslator(source='auto', target='uk', api_url='https://libretranslate.com')
+        # Використовуємо MyMemoryTranslator (безкоштовний і надійний)
+        translator = MyMemoryTranslator(source='en', target='uk-UA')
         result = translator.translate(text)
         return result if result else text
     except Exception as e:
