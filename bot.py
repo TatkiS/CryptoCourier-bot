@@ -9,7 +9,8 @@ from telegram.error import TelegramError
 import asyncio
 from aiohttp import web
 import threading
-from deep_translator import GoogleTranslator
+from deep_translator import LibreTranslateTranslator
+
 # Налаштування логування
 logging.basicConfig(
     level=logging.INFO,
@@ -49,42 +50,41 @@ def save_cache(cache):
     except Exception as e:
         logger.error(f"Помилка збереження кешу: {e}")
 
-53
-(text):
+def translate_to_ukrainian(text):
     """Перекладає текст на українську з високою якістю"""
     if not text or len(text.strip()) == 0:
         return text
     
     try:
-        # Пробуємо DeepL (free tier)
-        try:
-            translator = DeeplTranslator(source='auto', target='ukrainian', use_free_api=True)            result = translator.translate(text)
-            if result:
-                return result
-        except:
-            pass
-        
-        # Fallback: MyMemory (безкоштовний, добра якість)
-        translator = MyMemoryTranslator(source='en', target='uk-UA')        result = translator.translate(text)
-        return result if result else text
-        
-    except Exception as e:
-        logger.error(f"Помилка перекладу: {e}")
-53
-12
-        (text):
-    """Перекладає текст на українську з високою якістю"""
-    if not text or len(text.strip()) == 0:
-        return text
-    
-    try:
-        # Використовуємо GoogleTranslator (безкоштовний і надійний)
-        translator = GoogleTranslator(source='auto', target='uk')
+        # Використовуємо LibreTranslate (безкоштовний і надійний)
+        translator = LibreTranslateTranslator(source='auto', target='uk', api_url='https://libretranslate.com')
         result = translator.translate(text)
         return result if result else text
     except Exception as e:
         logger.error(f"Помилка перекладу: {e}")
-        return text    message += f"🔗 <a href='{link}'>Читати повністю</a>\n\n"
+        return text
+
+def format_news(entry):
+    """Форматує новину для публікації"""
+    title = entry.get('title', 'Без заголовка')
+    link = entry.get('link', '')
+    published = entry.get('published', '')
+    
+    # Форматування дати
+    try:
+        pub_date = datetime.strptime(published, '%a, %d %b %Y %H:%M:%S %z')
+        kyiv_tz = pytz.timezone('Europe/Kiev')
+        pub_date_kyiv = pub_date.astimezone(kyiv_tz)
+        date_str = pub_date_kyiv.strftime('%d.%m.%Y %H:%M')
+    except:
+        date_str = published
+    
+    # Перекладаємо заголовок на українську
+    title = translate_to_ukrainian(title)
+    
+    message = f"📰 <b>{title}</b>\n\n"
+    message += f"🗓 {date_str}\n"
+    message += f"🔗 <a href='{link}'>Читати повністю</a>\n\n"
     message += "#криптоновини #CryptoCourier"
     
     return message
@@ -127,6 +127,7 @@ async def check_and_post_news():
     # Зберігаємо тільки останні 1000 ID
     cache['posted_ids'] = list(posted_ids)[-1000:]
     save_cache(cache)
+
 # HTTP Health Check для Render
 async def health_check(request):
     return web.Response(text="Bot is running")
@@ -142,8 +143,6 @@ async def start_http_server():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"HTTP сервер запущено на порту {port}")
-
-
 
 async def keep_alive():
     """Підтримує сервіс активним, роблячи HTTP запити кожні 10 хвилин"""
@@ -162,14 +161,13 @@ async def keep_alive():
         except Exception as e:
             logger.error(f"❌ Keep-alive error: {e}")
 
-
 async def main():
     """Основний цикл бота"""
     logger.info("Бот запущено")
-        
+    
     # Запускаємо HTTP сервер
     await start_http_server()
-        
+    
     # Запускаємо keep-alive у фоні
     asyncio.create_task(keep_alive())
     
