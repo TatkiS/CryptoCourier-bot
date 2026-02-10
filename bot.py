@@ -57,6 +57,9 @@ logging.basicConfig(level=logging.INFO)
 # === 📦 Кешування ===
 def load_cache():
     if not os.path.exists(CACHE_FILE):
+
+              # Глобальна змінна для Application
+APP = None
         return {"hashes": set(), "urls": set(), "titles": set(), "date": "", "posts_today": 0}
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
@@ -155,7 +158,8 @@ def fetch_rss():
     return feed.entries[:10]
 
 # === 📰 Основна функція: публікація новин ===
-async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
+async def post_crypto_news():
+
     cache = load_cache()
     combined = []
 
@@ -237,6 +241,7 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
 # === 💰 Ціни ===
 async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
     try:
+        global APP APP = app      
         url = f"{COINGECKO_PRICE_URL}?ids={','.join(ASSETS)}&vs_currencies=usd"
         data = requests.get(url, timeout=10).json()
         now = datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M')
@@ -267,9 +272,9 @@ async def start_http_server():
 # === 🚀 Головний цикл ===
 async def main():
     app = Application.builder().token(TOKEN).build()
-    scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
-    scheduler.add_job(post_crypto_news, trigger='interval', minutes=60, args=[app])
-    scheduler.add_job(post_price_update, trigger='cron', hour='2,6,10,14,18,22', args=[app])
+    scheduler.add_job(post_crypto_news, trigger='interval', minutes=60)
+    scheduler.add_job(post_price_update, trigger='cron', hour='2,6,10,14,18,22')
+
     scheduler.start()
               
     # Запуск HTTP сервера
