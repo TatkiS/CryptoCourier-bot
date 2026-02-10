@@ -1,184 +1,264 @@
 import os
 import json
-import logging
-from datetime import datetime
-import pytz
-import feedparser
-from telegram import Bot
-from telegram.error import TelegramError
+import re
 import asyncio
-from aiohttp import web
-import threading
-from deep_translator import MyMemoryTranslator
+import logging
+from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 
-# Налаштування логування
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+import requests
+import feedparser
+from deep_translator import GoogleTranslator
+from textblob import TextBlob
+from dotenv import load_dotenv
+from telegram.ext import Application, ContextTypes
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-# Конфігурація
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-CHANNEL_ID = os.environ.get('CHANNEL_ID')
-RSS_FEEDS = [
-    'https://www.coindesk.com/arc/outboundfeeds/rss/',
-    'https://cointelegraph.com/rss',
-    'https://decrypt.co/feed'
-]
-CACHE_FILE = 'posted_cache.json'
-CHECK_INTERVAL = 60  # 3 години
+# === 🌍 Завантаження змінних середовища ===
+load_dotenv()
 
-# Ініціалізація бота
-bot = Bot(token=BOT_TOKEN)
+# === 🔧 Налаштування ===
+TOKEN = os.getenv("BOT_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
+GNEWS_URL = f"https://gnews.io/api/v4/search?q=crypto&lang=en&token={GNEWS_API_KEY}"
+
+MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY")
+MARKETAUX_URL = f"https://api.marketaux.com/v1/news/all?filter_entities=true&language=en&categories=cryptocurrency&api_token={MARKETAUX_API_KEY}"
+
+COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
+CACHE_FILE = "posted_cache.json"
+
+ASSETS = ["bitcoin", "ethereum", "binancecoin", "solana", "chainlink", "polkadot", "cosmos",
+          "avalanche-2", "near", "render-token", "aave", "uniswap", "ripple", "ethereum-name-service",
+          "thorchain", "vechain", "cardano", "bitget-token", "curve-dao-token", "jupiter-exchange",
+          "filecoin", "arbitrum"]
+
+MAX_POSTS_PER_RUN = 5
+BANNED_DOMAINS = ["biztoc.com", "pypi.org"]
+
+IMPORTANT_KEYWORDS = ["hack", "listing", "etf", "regulation", "partnership", "lawsuit", "court"]
+
+TOPIC_TAGS = {
+    "bitcoin": "#Bitcoin", "btc": "#Bitcoin", "ethereum": "#Ethereum", "eth": "#Ethereum",
+    "sec": "#SEC", "etf": "#ETF", "binance": "#Binance", "coinbase": "#Coinbase", "ftx": "#FTX",
+    "bybit": "#Bybit", "blackrock": "#BlackRock", "hack": "#Hack", "exploit": "#Exploit",
+    "scam": "#Scam", "fraud": "#Fraud", "defi": "#DeFi", "solana": "#Solana", "cardano": "#Cardano",
+    "usdt": "#Tether", "tether": "#Tether", "ripple": "#XRP", "xrp": "#XRP", "kraken": "#Kraken",
+    "regulation": "#Regulation", "lawsuit": "#Court", "court": "#Court", "ai": "#AI",
+    "stablecoin": "#Stablecoin", "nft": "#NFT", "crypto": "#Crypto", "blockchain": "#Blockchain",
+    "web3": "#Web3", "altcoin": "#Altcoins", "altcoins": "#Altcoins"
+}
+
+logging.basicConfig(level=logging.INFO)
+
+# === 📦 Кешування ===
 def load_cache():
-    """Завантажує кеш опублікованих новин"""
+    if not os.path.exists(CACHE_FILE):
+        return {"hashes": set(), "urls": set(), "titles": set(), "date": "", "posts_today": 0}
     try:
-        if os.path.exists(CACHE_FILE):
-            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return {
+                "hashes": set(data.get("hashes", [])),
+                "urls": set(data.get("urls", [])),
+                "titles": set(data.get("titles", [])),
+                "date": data.get("date", ""),
+                "posts_today": data.get("posts_today", 0)
+            }
     except Exception as e:
-        logger.error(f"Помилка завантаження кешу: {e}")
-    return {'posted_ids': []}
+        logging.warning(f"❌ Кеш не завантажено: {e}")
+        return {"hashes": set(), "urls": set(), "titles": set(), "date": "", "posts_today": 0}
 
 def save_cache(cache):
-    """Зберігає кеш опублікованих новин"""
-    try:
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f"Помилка збереження кешу: {e}")
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "hashes": list(cache["hashes"]),
+            "urls": list(cache["urls"]),
+            "titles": list(cache["titles"]),
+            "date": cache.get("date", ""),
+            "posts_today": cache.get("posts_today", 0)
+        }, f, indent=2, ensure_ascii=False)
 
-def translate_to_ukrainian(text):
-    """Перекладає текст на українську з високою якістю"""
-    if not text or len(text.strip()) == 0:
-        return text
-    
-    try:
-        # Використовуємо MyMemoryTranslator (безкоштовний і надійний)
-        translator = MyMemoryTranslator(source='en', target='uk-UA')
-        result = translator.translate(text)
-        return result if result else text
-    except Exception as e:
-        logger.error(f"Помилка перекладу: {e}")
-        return text
+# === 📜 Інструменти ===
+def sanitize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<.*?>|&[a-z]+;", "", text or "")).strip()
 
-def format_news(entry):
-    """Форматує новину для публікації"""
-    title = entry.get('title', 'Без заголовка')
-    link = entry.get('link', '')
-    published = entry.get('published', '')
-    
-    # Форматування дати
+def generate_post_hash(title: str, body: str) -> str:
+    return sha256(sanitize_text(title + body).encode("utf-8")).hexdigest()
+
+def contextual_translate(title, body):
     try:
-        pub_date = datetime.strptime(published, '%a, %d %b %Y %H:%M:%S %z')
-        kyiv_tz = pytz.timezone('Europe/Kiev')
-        pub_date_kyiv = pub_date.astimezone(kyiv_tz)
-        date_str = pub_date_kyiv.strftime('%d.%m.%Y %H:%M')
+        result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}\nОпис: {body}")
+        parts = result.split("Опис:")
+        return parts[0].replace("Заголовок:", "").strip(), parts[1].strip() if len(parts) > 1 else body
     except:
-        date_str = published
-    
-    # Перекладаємо заголовок на українську
-    title = translate_to_ukrainian(title)
-    
-    message = f"📰 <b>{title}</b>\n\n"
-    message += f"🗓 {date_str}\n"
-    message += f"🔗 <a href='{link}'>Читати повністю</a>\n\n"
-    message += "#криптоновини #CryptoCourier"
-    
-    return message
+        return title, body
 
-async def check_and_post_news():
-    """Перевіряє RSS і публікує нові новини"""
+def create_contextual_summary(text):
+    text = text.lower()
+    for k in IMPORTANT_KEYWORDS:
+        if k in text:
+            return {
+                "hack": "🚨 Імовірно злом або втрата даних.",
+                "etf": "📈 ETF - потужний інструмент для інституцій.",
+                "lawsuit": "⚖️ Юридичні суперечки можуть змінити хід подій.",
+                "court": "⚖️ Юридичні суперечки можуть змінити хід подій.",
+                "listing": "📢 Новий лістинг підвищує популярність токена.",
+                "partnership": "🤝 Партнерства відкривають нові горизонти."
+            }.get(k, "")
+    return "📌 Це подія, яка потенційно може вплинути на крипторинок найближчим часом."
+
+def analyze_sentiment(text):
+    polarity = TextBlob(text).sentiment.polarity
+    return "🟢 Позитивна" if polarity > 0.2 else "🔴 Негативна" if polarity < -0.2 else "🟡 Нейтральна"
+
+def extract_tags(text):
+    return " ".join(sorted({tag for kw, tag in TOPIC_TAGS.items() if kw in text.lower()} | {"#CryptoCourierUA"}))
+
+def is_valid_news(title, body):
+    return bool(title and body and len(body.split()) > 5)
+
+def is_image_accessible(url):
+    try:
+        r = requests.get(url, timeout=10)
+        return r.status_code == 200 and "image" in r.headers.get("Content-Type", "")
+    except:
+        return False
+
+# === 📡 Джерела новин ===
+def fetch_marketaux():
+    try:
+        r = requests.get(MARKETAUX_URL, timeout=10)
+        return r.json().get("data", [])
+    except:
+        return []
+
+def fetch_gnews():
+    try:
+        r = requests.get(GNEWS_URL, timeout=10)
+        return r.json().get("articles", [])
+    except:
+        return []
+
+def fetch_coinstats():
+    try:
+        r = requests.get("https://api.coinstats.app/public/v1/news?skip=0&limit=10&category=cryptocurrency", timeout=10)
+        return r.json().get("news", [])
+    except:
+        return []
+
+def fetch_rss():
+    feed = feedparser.parse("https://cointelegraph.com/rss")
+    return feed.entries[:10]
+
+# === 📰 Основна функція: публікація новин ===
+async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
     cache = load_cache()
-    posted_ids = set(cache.get('posted_ids', []))
-    
-    for feed_url in RSS_FEEDS:
+    combined = []
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if cache.get("date") != today:
+        cache.update({"date": today, "posts_today": 0})
+
+    combined += [{
+        "title": n.get("title", ""),
+        "body": n.get("description", "") or n.get("content", ""),
+        "image": n.get("imgUrl"),
+        "url": n.get("link")
+    } for n in fetch_coinstats()]
+
+    combined += [{
+        "title": g.get("title", ""),
+        "body": g.get("description", "") or g.get("content", ""),
+        "image": g.get("image"),
+        "url": g.get("url")
+    } for g in fetch_gnews()]
+
+    combined += [{
+        "title": m.get("title", ""),
+        "body": m.get("description", "") or m.get("snippet", ""),
+        "image": m.get("image_url"),
+        "url": m.get("url")
+    } for m in fetch_marketaux()]
+
+    combined += [{
+        "title": r.get("title", ""),
+        "body": r.get("summary", ""),
+        "image": "",
+        "url": r.get("link")
+    } for r in fetch_rss()]
+
+    logging.info(f"📊 Комбіновано новин: {len(combined)}")
+
+    posts_sent = 0
+    for post in combined:
+        if posts_sent >= MAX_POSTS_PER_RUN or cache["posts_today"] >= 20:
+            break
+
+        title = sanitize_text(post["title"])
+        body = sanitize_text(post["body"])
+        url = post["url"]
+
+        if not is_valid_news(title, body) or any(d in url for d in BANNED_DOMAINS):
+            continue
+
+        post_hash = generate_post_hash(title, body)
+        if post_hash in cache["hashes"] or url in cache["urls"] or title in cache["titles"]:
+            continue
+
+        ukr_title, ukr_body = contextual_translate(title, body)
+        logic = create_contextual_summary(title + " " + body)
+        sentiment = analyze_sentiment(body)
+        tags = extract_tags(title + " " + body)
+
+        msg = f"""🗳️ <b>{ukr_title}</b>\n\n{ukr_body}\n\n{logic}\n{sentiment}\n\n📊 {tags}\n🔗 <i>Читати повністю:</i> {url}"""
+
         try:
-            logger.info(f"Перевірка RSS: {feed_url}")
-            feed = feedparser.parse(feed_url)
-            
-            for entry in feed.entries[:5]:  # Беремо тільки 5 останніх
-                entry_id = entry.get('id', entry.get('link'))
-                
-                if entry_id not in posted_ids:
-                    try:
-                        message = format_news(entry)
-                        await bot.send_message(
-                            chat_id=CHANNEL_ID,
-                            text=message,
-                            parse_mode='HTML',
-                            disable_web_page_preview=False
-                        )
-                        
-                        posted_ids.add(entry_id)
-                        logger.info(f"Опубліковано: {entry.get('title')}")
-                        
-                        # Затримка між постами
-                        await asyncio.sleep(2)
-                        
-                    except TelegramError as e:
-                        logger.error(f"Помилка публікації: {e}")
-                        
+            if post["image"] and is_image_accessible(post["image"]):
+                await context.bot.send_photo(chat_id=CHANNEL_ID, photo=post["image"], caption=msg, parse_mode="HTML")
+            else:
+                await context.bot.send_message(chat_id=CHANNEL_ID, text=msg, parse_mode="HTML")
+
+            cache["hashes"].add(post_hash)
+            cache["urls"].add(url)
+            cache["titles"].add(title)
+            cache["posts_today"] += 1
+            posts_sent += 1
+            save_cache(cache)
         except Exception as e:
-            logger.error(f"Помилка обробки RSS {feed_url}: {e}")
-    
-    # Зберігаємо тільки останні 1000 ID
-    cache['posted_ids'] = list(posted_ids)[-1000:]
-    save_cache(cache)
+            logging.error(f"❌ Не вдалося надіслати пост: {e}")
 
-# HTTP Health Check для Render
-async def health_check(request):
-    return web.Response(text="Bot is running")
+    if posts_sent == 0:
+        await context.bot.send_message(chat_id=CHANNEL_ID, text="📭 Сьогодні новин, вартих уваги, не знайдено. Слідкуй за оновленнями!", parse_mode="HTML")
 
-async def start_http_server():
-    """Запускає HTTP сервер для health check"""
-    app = web.Application()
-    app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get('PORT', 10000))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    logger.info(f"HTTP сервер запущено на порту {port}")
+# === 💰 Ціни ===
+async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
+    try:
+        url = f"{COINGECKO_PRICE_URL}?ids={','.join(ASSETS)}&vs_currencies=usd"
+        data = requests.get(url, timeout=10).json()
+        now = datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M')
+        prices = "\n".join(f"{sym.upper()}: ${data[sym]['usd']:,.2f}" for sym in data if 'usd' in data[sym])
+        await context.bot.send_message(chat_id=CHANNEL_ID, text=f"💹 <b>Оновлення цін ({now})</b>\n\n<b>📊 Поточні ціни:</b>\n{prices}\n\n#CryptoCourierUA #Ціни", parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"❌ Помилка отримання цін: {e}")
 
-async def keep_alive():
-    """Підтримує сервіс активним, роблячи HTTP запити кожні 10 хвилин"""
-    import aiohttp
-    url = f"https://cryptocourier-bot.onrender.com/health"
-    
-    while True:
-        try:
-            await asyncio.sleep(600)  # 10 хвилин
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        logger.info("✅ Keep-alive ping: OK")
-                    else:
-                        logger.warning(f"⚠️ Keep-alive ping: {response.status}")
-        except Exception as e:
-            logger.error(f"❌ Keep-alive error: {e}")
-
+# === 🚀 Головний цикл ===
 async def main():
-    """Основний цикл бота"""
-    logger.info("Бот запущено")
-    
-    # Запускаємо HTTP сервер
-    await start_http_server()
-    
-    # Запускаємо keep-alive у фоні
-    asyncio.create_task(keep_alive())
-    
-    while True:
-        try:
-            await check_and_post_news()
-            logger.info(f"Очікування {CHECK_INTERVAL} секунд...")
-            await asyncio.sleep(CHECK_INTERVAL)
-        except Exception as e:
-            logger.error(f"Помилка в основному циклі: {e}")
-            await asyncio.sleep(60)
+    app = Application.builder().token(TOKEN).build()
+    scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
+    scheduler.add_job(post_crypto_news, trigger='interval', minutes=60, args=[app])
+    scheduler.add_job(post_price_update, trigger='cron', hour='2,6,10,14,18,22', args=[app])
+    scheduler.start()
+    print("🤖 CryptoCourierUA запущено")
+    await app.initialize()
+    await app.start()
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        await app.stop()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())
