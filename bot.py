@@ -281,8 +281,8 @@ async def main():
         while True:
             await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
-                      await http_runner.cleanup()
-        await app.stop()
+                      await http_runner.cle 
+                      await app.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
