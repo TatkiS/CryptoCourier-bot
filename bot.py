@@ -13,6 +13,7 @@ from textblob import TextBlob
 from dotenv import load_dotenv
 from telegram.ext import Application, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from aiohttp import web
 
 # === 🌍 Завантаження змінних середовища ===
 load_dotenv()
@@ -244,6 +245,25 @@ async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logging.error(f"❌ Помилка отримання цін: {e}")
 
+
+# === 🌐 HTTP Server для Health Check ===
+async def health_check(request):
+    """Health check endpoint для Render"""
+    return web.Response(text="OK", status=200)
+
+async def start_http_server():
+    """Запуск HTTP сервера для health checks"""
+    app_web = web.Application()
+    app_web.router.add_get('/', health_check)
+    app_web.router.add_get('/health', health_check)
+    
+    port = int(os.getenv('PORT', 10000))
+    runner = web.AppRunner(app_web)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"HTTP сервер запущено на порту {port}")
+    return runner
 # === 🚀 Головний цикл ===
 async def main():
     app = Application.builder().token(TOKEN).build()
@@ -251,6 +271,9 @@ async def main():
     scheduler.add_job(post_crypto_news, trigger='interval', minutes=60, args=[app])
     scheduler.add_job(post_price_update, trigger='cron', hour='2,6,10,14,18,22', args=[app])
     scheduler.start()
+              
+    # Запуск HTTP сервера
+    http_runner = await start_http_server()
     print("🤖 CryptoCourierUA запущено")
     await app.initialize()
     await app.start()
@@ -258,6 +281,7 @@ async def main():
         while True:
             await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
+                      await http_runner.cleanup()
         await app.stop()
 
 if __name__ == "__main__":
