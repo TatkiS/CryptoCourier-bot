@@ -226,14 +226,7 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
         
         msg = f"""🗳️ {ukr_title}
 
-{ukr_body}
 
-{logic}
-{sentiment}
-
-📊 {tags}
-🔗 Читати повністю: {url}"""
-        
         try:
             if post["image"] and is_image_accessible(post["image"]):
                 await context.bot.send_photo(chat_id=CHANNEL_ID, photo=post["image"], caption=msg, parse_mode="HTML")
