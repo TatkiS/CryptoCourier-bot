@@ -226,6 +226,17 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
         
         msg = f"""🗳️ {ukr_title}
 
+📝 {ukr_body}
+
+{logic}
+
+🔍 Настрій: {sentiment}
+
+🔗 Джерело: {url}
+
+{tags}
+"""
+
 
         try:
             if post["image"] and is_image_accessible(post["image"]):
