@@ -25,18 +25,14 @@ GNEWS_URL = f"https://gnews.io/api/v4/search?q=crypto&lang=en&token={GNEWS_API_K
 MARKETAUX_API_KEY = os.getenv("MARKETAUX_API_KEY")
 MARKETAUX_URL = f"https://api.marketaux.com/v1/news/all?filter_entities=true&language=en&categories=cryptocurrency&api_token={MARKETAUX_API_KEY}"
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
-
 CACHE_FILE = "posted_cache.json"
-
 ASSETS = ["bitcoin", "ethereum", "binancecoin", "solana", "chainlink", "polkadot", 
           "cosmos", "avalanche-2", "near", "render-token", "aave", "uniswap", 
           "ripple", "ethereum-name-service", "thorchain", "vechain", "cardano", 
           "bitget-token", "curve-dao-token", "jupiter-exchange", "filecoin", "arbitrum"]
-
-MAX_POSTS_PER_RUN = 5
+MAX_POSTS_PER_RUN = 1
 BANNED_DOMAINS = ["biztoc.com", "pypi.org"]
 IMPORTANT_KEYWORDS = ["hack", "listing", "etf", "regulation", "partnership", "lawsuit", "court"]
-
 TOPIC_TAGS = {
     "bitcoin": "#Bitcoin", "btc": "#Bitcoin",
     "ethereum": "#Ethereum", "eth": "#Ethereum",
@@ -71,13 +67,13 @@ def load_cache():
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return {
-            "hashes": set(data.get("hashes", [])),
-            "urls": set(data.get("urls", [])),
-            "titles": set(data.get("titles", [])),
-            "date": data.get("date", ""),
-            "posts_today": data.get("posts_today", 0)
-        }
+            return {
+                "hashes": set(data.get("hashes", [])),
+                "urls": set(data.get("urls", [])),
+                "titles": set(data.get("titles", [])),
+                "date": data.get("date", ""),
+                "posts_today": data.get("posts_today", 0)
+            }
     except Exception as e:
         logging.warning(f"❌ Кеш не завантажено: {e}")
         return {"hashes": set(), "urls": set(), "titles": set(), "date": "", "posts_today": 0}
@@ -101,9 +97,12 @@ def generate_post_hash(title: str, body: str) -> str:
 
 def contextual_translate(title, body):
     try:
-        result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}\nОпис: {body}")
-        parts = result.split("Опис:")
-        return parts[0].replace("Заголовок:", "").strip(), parts[1].strip() if len(parts) > 1 else body
+        result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}
+Опис: {body}")
+        if "Опис:" in result:
+            parts = result.split("Опис:")
+            return parts[0].replace("Заголовок:", "").strip(), parts[1].strip()
+        return result, body
     except:
         return title, body
 
@@ -173,39 +172,16 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
     if cache.get("date") != today:
         cache.update({"date": today, "posts_today": 0})
     
-    combined += [{
-        "title": n.get("title", ""),
-        "body": n.get("description", "") or n.get("content", ""),
-        "image": n.get("imgUrl"),
-        "url": n.get("link")
-    } for n in fetch_coinstats()]
-    
-    combined += [{
-        "title": g.get("title", ""),
-        "body": g.get("description", "") or g.get("content", ""),
-        "image": g.get("image"),
-        "url": g.get("url")
-    } for g in fetch_gnews()]
-    
-    combined += [{
-        "title": m.get("title", ""),
-        "body": m.get("description", "") or m.get("snippet", ""),
-        "image": m.get("image_url"),
-        "url": m.get("url")
-    } for m in fetch_marketaux()]
-    
-    combined += [{
-        "title": r.get("title", ""),
-        "body": r.get("summary", ""),
-        "image": "",
-        "url": r.get("link")
-    } for r in fetch_rss()]
+    combined += [{"title": n.get("title", ""), "body": n.get("description", "") or n.get("content", ""), "image": n.get("imgUrl"), "url": n.get("link")} for n in fetch_coinstats()]
+    combined += [{"title": g.get("title", ""), "body": g.get("description", "") or g.get("content", ""), "image": g.get("image"), "url": g.get("url")} for g in fetch_gnews()]
+    combined += [{"title": m.get("title", ""), "body": m.get("description", "") or m.get("snippet", ""), "image": m.get("image_url"), "url": m.get("url")} for m in fetch_marketaux()]
+    combined += [{"title": r.get("title", ""), "body": r.get("summary", ""), "image": "", "url": r.get("link")} for r in fetch_rss()]
     
     logging.info(f"📊 Комбіновано новин: {len(combined)}")
     
     posts_sent = 0
     for post in combined:
-        if posts_sent >= MAX_POSTS_PER_RUN or cache["posts_today"] >= 20:
+        if posts_sent >= MAX_POSTS_PER_RUN:
             break
         
         title = sanitize_text(post["title"])
@@ -224,20 +200,16 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
         sentiment = analyze_sentiment(body)
         tags = extract_tags(title + " " + body)
         
-        msg = f"""🗳️ {ukr_title}
+        msg = f"🗳️ <b>{ukr_title}</b>
 
 📝 {ukr_body}
 
 {logic}
-
 🔍 Настрій: {sentiment}
-
 🔗 Джерело: {url}
 
-{tags}
-"""
-
-
+{tags}"
+        
         try:
             if post["image"] and is_image_accessible(post["image"]):
                 await context.bot.send_photo(chat_id=CHANNEL_ID, photo=post["image"], caption=msg, parse_mode="HTML")
@@ -250,18 +222,10 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
             cache["posts_today"] += 1
             posts_sent += 1
             save_cache(cache)
-            
-            await asyncio.sleep(2)  # Пауза між постами
+            break # Тільки один пост за раз
             
         except Exception as e:
             logging.error(f"❌ Не вдалося надіслати пост: {e}")
-    
-    if posts_sent == 0:
-        await context.bot.send_message(
-            chat_id=CHANNEL_ID,
-            text="📭 Сьогодні новин, вартих уваги, не знайдено. Слідкуй за оновленнями!",
-            parse_mode="HTML"
-        )
 
 # === 💰 Ціни ===
 async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
@@ -270,75 +234,61 @@ async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
         data = requests.get(url, timeout=10).json()
         now = datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M')
         
-        prices = "\n".join(f"{sym.upper()}: ${data[sym]['usd']:,.2f}" for sym in data if 'usd' in data[sym])
+        prices = "
+".join(f"{sym.upper()}: ${data[sym]['usd']:,.2f}" for sym in data if 'usd' in data[sym])
         
         await context.bot.send_message(
             chat_id=CHANNEL_ID,
-            text=f"💹 Оновлення цін ({now})\n\n📊 Поточні ціни:\n{prices}\n\n#CryptoCourierUA #Ціни",
+            text=f"💹 Оновлення цін ({now})
+
+📊 Поточні ціни:
+{prices}
+
+#CryptoCourierUA #Ціни",
             parse_mode="HTML"
         )
     except Exception as e:
         logging.error(f"❌ Помилка отримання цін: {e}")
 
-# === 📰 Wrapper-функції для scheduler ===
+# === 📰 Wrapper-функції ===
 async def scheduled_post_news(app):
-    """Wrapper для виклику post_crypto_news через scheduler"""
     class FakeContext:
         def __init__(self, bot):
             self.bot = bot
-    
     await post_crypto_news(FakeContext(app.bot))
 
-async def scheduled_price_update(app):
-    """Wrapper для виклику post_price_update через scheduler"""
-    class FakeContext:
-        def __init__(self, bot):
-            self.bot = bot
-    
-    await post_price_update(FakeContext(app.bot))
-
-# === 🌐 HTTP Server для Health Check ===
+# === 🌐 HTTP Server ===
 async def health_check(request):
-    """Health check endpoint для Render"""
     return web.Response(text="OK", status=200)
 
 async def start_http_server():
-    """Запуск HTTP сервера для health checks"""
     app_web = web.Application()
     app_web.router.add_get('/', health_check)
     app_web.router.add_get('/health', health_check)
-    
     port = int(os.getenv('PORT', 10000))
     runner = web.AppRunner(app_web)
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logging.info(f"✅ HTTP сервер запущено на порту {port}")
     return runner
 
 # === 🚀 Головний цикл ===
 async def main():
     app = Application.builder().token(TOKEN).build()
     
-    # Додаємо задачі в scheduler
-    scheduler.add_job(scheduled_post_news, trigger='interval', minutes=60, args=[app])
-    scheduler.add_job(scheduled_price_update, trigger='cron', hour='2,6,10,14,18,22', args=[app])
+    # Постинг кожні 3 години (180 хвилин)
+    scheduler.add_job(scheduled_post_news, trigger='interval', minutes=180, args=[app])
     scheduler.start()
     
-    # Запуск HTTP сервера
-    http_runner = await start_http_server()
-    logging.info("🤖 CryptoCourierUA запущено")
+    await start_http_server()
     
-    await app.initialize()
-    await app.start()
-    
-    try:
+    async with app:
+        await app.initialize()
+        await app.start()
+        logging.info("🤖 Бот запущено")
+        # Keep alive loop
         while True:
             await asyncio.sleep(3600)
-    except (KeyboardInterrupt, SystemExit):
-        logging.info("🛑 Зупинка бота...")
-        await http_runner.cleanup()
-        await app.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
