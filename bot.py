@@ -97,7 +97,7 @@ def generate_post_hash(title: str, body: str) -> str:
 
 def contextual_translate(title, body):
     try:
-        result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}\nОпис: {body}")     
+        result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}\nОпис: {body}")
                       if "Опис:" in result:
             parts = result.split("Опис:")
             return parts[0].replace("Заголовок:", "").strip(), parts[1].strip()
