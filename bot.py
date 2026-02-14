@@ -27,9 +27,9 @@ MARKETAUX_URL = f"https://api.marketaux.com/v1/news/all?filter_entities=true&lan
 COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
 CACHE_FILE = "posted_cache.json"
 ASSETS = ["bitcoin", "ethereum", "binancecoin", "solana", "chainlink", "polkadot", 
-          "cosmos", "avalanche-2", "near", "render-token", "aave", "uniswap", 
-          "ripple", "ethereum-name-service", "thorchain", "vechain", "cardano", 
-          "bitget-token", "curve-dao-token", "jupiter-exchange", "filecoin", "arbitrum"]
+         "cosmos", "avalanche-2", "near", "render-token", "aave", "uniswap", 
+         "ripple", "ethereum-name-service", "thorchain", "vechain", "cardano", 
+         "bitget-token", "curve-dao-token", "jupiter-exchange", "filecoin", "arbitrum"]
 MAX_POSTS_PER_RUN = 1
 BANNED_DOMAINS = ["biztoc.com", "pypi.org"]
 IMPORTANT_KEYWORDS = ["hack", "listing", "etf", "regulation", "partnership", "lawsuit", "court"]
@@ -98,12 +98,13 @@ def generate_post_hash(title: str, body: str) -> str:
 def contextual_translate(title, body):
     try:
         result = GoogleTranslator(source='auto', target='uk').translate(f"Заголовок: {title}\nОпис: {body}")
-                              if "Опис:" in result:
+        if "Опис:" in result:
             parts = result.split("Опис:")
             return parts[0].replace("Заголовок:", "").strip(), parts[1].strip()
-                                        return result, body
+        return result, body
     except:
         return title, body
+
 def create_contextual_summary(text):
     text = text.lower()
     for k in IMPORTANT_KEYWORDS:
@@ -198,15 +199,7 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
         sentiment = analyze_sentiment(body)
         tags = extract_tags(title + " " + body)
         
-        msg = f"🗳️ <b>{ukr_title}</b>
-
-📝 {ukr_body}
-
-{logic}
-🔍 Настрій: {sentiment}
-🔗 Джерело: {url}
-
-{tags}"
+        msg = f"🗳️ <b>{ukr_title}</b>\n📝 {ukr_body}\n{logic}\n🔍 Настрій: {sentiment}\n🔗 Джерело: {url}\n{tags}"
         
         try:
             if post["image"] and is_image_accessible(post["image"]):
@@ -220,7 +213,7 @@ async def post_crypto_news(context: ContextTypes.DEFAULT_TYPE):
             cache["posts_today"] += 1
             posts_sent += 1
             save_cache(cache)
-            break # Тільки один пост за раз
+            break  # Тільки один пост за раз
             
         except Exception as e:
             logging.error(f"❌ Не вдалося надіслати пост: {e}")
@@ -232,17 +225,11 @@ async def post_price_update(context: ContextTypes.DEFAULT_TYPE):
         data = requests.get(url, timeout=10).json()
         now = datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d %H:%M')
         
-        prices = "
-".join(f"{sym.upper()}: ${data[sym]['usd']:,.2f}" for sym in data if 'usd' in data[sym])
+        prices = "\n".join(f"{sym.upper()}: ${data[sym]['usd']:,.2f}" for sym in data if 'usd' in data[sym])
         
         await context.bot.send_message(
             chat_id=CHANNEL_ID,
-            text=f"💹 Оновлення цін ({now})
-
-📊 Поточні ціни:
-{prices}
-
-#CryptoCourierUA #Ціни",
+            text=f"💹 Оновлення цін ({now})\n📊 Поточні ціни:\n{prices}\n#CryptoCourierUA #Ціни",
             parse_mode="HTML"
         )
     except Exception as e:
