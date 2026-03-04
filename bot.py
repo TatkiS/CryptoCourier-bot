@@ -264,10 +264,10 @@ async def main():
     # Постинг кожні 3 години (180 хвилин)
     scheduler.add_job(scheduled_post_news, trigger='interval', minutes=180, args=[app])
     scheduler.start()
-         logging.info("⏰ Scheduler запущено. Наступні пости кожні 3 години.")
+    logging.info("⏰ Scheduler запущено. Наступні пости кожні 3 години.")
 
-                                    т одразу після запуску
-         logging.info("📢 Запускаю перший пост новини...")
+                                        # одразу після запуску
+             logging.info("📢 Запускаю перший пост новини...")
 await scheduled_post_news(app)
     
     await start_http_server()
