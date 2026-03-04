@@ -268,7 +268,7 @@ async def main():
 
     # одразу після запуску
     logging.info("📢 Запускаю перший пост новини...")
-await scheduled_post_news(app)
+    await scheduled_post_news(app)
     
     await start_http_server()
     
