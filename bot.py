@@ -266,8 +266,8 @@ async def main():
     scheduler.start()
     logging.info("⏰ Scheduler запущено. Наступні пости кожні 3 години.")
 
-                                        # одразу після запуску
-             logging.info("📢 Запускаю перший пост новини...")
+    # одразу після запуску
+    logging.info("📢 Запускаю перший пост новини...")
 await scheduled_post_news(app)
     
     await start_http_server()
