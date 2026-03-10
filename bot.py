@@ -3,10 +3,24 @@ import json
 import asyncio
 import requests
 from datetime import datetime
-from hashlib import sha256
 from deep_translator import GoogleTranslator
 from telegram.ext import Application
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from flask import Flask
+from threading import Thread
+
+flask_app = Flask('')
+
+@flask_app.route('/')
+def home():
+    return "Bot is running"
+
+def run_flask():
+    flask_app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+def keep_alive():
+    t = Thread(target=run_flask)
+    t.start()
 
 TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
@@ -21,28 +35,38 @@ def save_cache(cache):
 
 async def post_news(context):
     cache = load_cache()
-    if cache["date"] != datetime.now().strftime("%Y-%m-%d"): cache = {"urls": [], "date": datetime.now().strftime("%Y-%m-%d")}
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    if cache.get("date") != current_date:
+        cache = {"urls": [], "date": current_date}
     try:
-        news = requests.get("https://api.coinstats.app/public/v1/news?skip=0&limit=5", timeout=10).json()["news"]
-        for n in news:
-            if n["link"] not in cache["urls"]:
-                trans = GoogleTranslator(source="auto", target="uk").translate(n["title"] + "
-
-" + n["description"])
-                await context.bot.send_message(chat_id=CHANNEL_ID, text=trans + "
-
-🔗 " + n["link"])
-                cache["urls"].append(n["link"])
+        url = "https://api.coinstats.app/public/v1/news?skip=0&limit=10"
+        response = requests.get(url, timeout=15)
+        news_data = response.json().get("news", [])
+        for item in news_data:
+            link = item.get("link")
+            if link and link not in cache["urls"]:
+                title = item.get("title", "No Title")
+                description = item.get("description", "")
+                text_to_translate = f"📌 {title}\n\n{description}"
+                translated = GoogleTranslator(source='auto', target='uk').translate(text_to_translate)
+                final_message = f"{translated}\n\n🔗 {link}"
+                await context.bot.send_message(chat_id=CHANNEL_ID, text=final_message)
+                cache["urls"].append(link)
                 save_cache(cache)
                 break
-    except: pass
+    except Exception as e:
+        print(f"Error: {e}")
 
 async def main():
-    app = Application.builder().token(TOKEN).build()
-    sch = AsyncIOScheduler()
-    sch.add_job(post_news, "interval", minutes=120, args=[app])
-    sch.start()
-    await app.initialize(); await app.start()
-    while True: await asyncio.sleep(3600)
+    keep_alive()
+    application = Application.builder().token(TOKEN).build()
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(post_news, 'interval', hours=2, args=[application])
+    scheduler.start()
+    await application.initialize()
+    await application.start()
+    while True:
+        await asyncio.sleep(3600)
 
-if __name__ == "__main__": asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
