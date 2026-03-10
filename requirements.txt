@@ -5,3 +5,4 @@ deep-translator
 textblob
 apscheduler
 requests
+flask
