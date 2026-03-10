@@ -1,9 +1,7 @@
-python-telegram-bot
-requests
+python-telegram-bot==20.7
 feedparser
+python-dotenv
 deep-translator
 textblob
-python-dotenv
-APScheduler
-pytz
-aiohttp
+apscheduler
+requests
