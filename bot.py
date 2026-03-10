@@ -34,6 +34,7 @@ def save_cache(cache):
     with open("posted_cache.json", "w") as f: json.dump(cache, f)
 
 async def post_news(context):
+    print(f"[{datetime.now()}] Starting news check...")
     cache = load_cache()
     current_date = datetime.now().strftime("%Y-%m-%d")
     if cache.get("date") != current_date:
@@ -42,6 +43,7 @@ async def post_news(context):
         url = "https://api.coinstats.app/public/v1/news?skip=0&limit=10"
         response = requests.get(url, timeout=15)
         news_data = response.json().get("news", [])
+        posted = False
         for item in news_data:
             link = item.get("link")
             if link and link not in cache["urls"]:
@@ -53,15 +55,20 @@ async def post_news(context):
                 await context.bot.send_message(chat_id=CHANNEL_ID, text=final_message)
                 cache["urls"].append(link)
                 save_cache(cache)
+                print(f"[{datetime.now()}] Posted: {title}")
+                posted = True
                 break
+        if not posted:
+            print(f"[{datetime.now()}] No new news to post.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"[{datetime.now()}] Error: {e}")
 
 async def main():
+    print("Bot starting...")
     keep_alive()
     application = Application.builder().token(TOKEN).build()
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(post_news, 'interval', hours=2, args=[application])
+    scheduler.add_job(post_news, 'interval', hours=2, args=[application], next_run_time=datetime.now())
     scheduler.start()
     await application.initialize()
     await application.start()
